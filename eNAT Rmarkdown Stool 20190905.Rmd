@@ -1,0 +1,894 @@
+---
+title: "eNAT"
+author: "Rebecca"
+date: "October 31, 2018 to September 5, 2019"
+output: html_document
+---
+
+
+#Step 1.) Preparing the microbiome data.
+  A.) The raw data came from Matt, and is a phyloseq object called phy.no.controls. The eukaryotic sequences are not part of this analysis
+  (artifacts) and are deleted. The sample was immediately separated into stool samples (this analysis) and saliva samples (another analysis). The      stool and saliva samples have the same SAP, but they will be done separetely (with parallel steps, with adjustment for saliva having
+  a smaller sample size). 
+    Group A: RNA Later, Immediate Freeze
+    Group B: RNA at Room Temperature
+    Group C: eNAT immediate freeze
+  B.) Remove based on incomplete aliquot: There are two sets of comparisons of interest: 1 is A to C, the other is B to C. There is no interest in the comparison of A to B (since both media and temperature changed). Therefore, if a sample was not aliquated in a way that there is a C comparison, the other aliquots from that sample were deleted.
+  C.) Remove samples that don't have at least 1000 reads. The cut-off for 1000 reads was determined using the Rarefaction curve. This code can be found at this file: U:\Rebecca\eNAT\Code\Rarefaction Curve Stool 20190212.rdma. The rarefaction curve is at: U:\Rebecca\eNAT\Results\stool_rarefaction_curves.png. The curve becomes flat at 1000 reads. SO this was determined to be the cut-off for pruning.This reduced the number of samples from 150 to 143.
+  D.) Removed rare OTUs. These are OTUs that have 10 or less samples across all reads. This reduced the number of OTUs from 1459 to 717.
+  E.) Removed more rare OTUs. Thesea are OTUs that do not occur in more than 2.5% of all samples. 
+  
+  Input of this step is phy.no.controls. 
+  Output: 
+  phy.data.poop <- phyloseq object for the stool data
+  phy.data.spit <- phyloseq object for the saliva data. To be used in the parallel code for the saliva analysis.
+  phy.1000.stool.5 <- this phyloseq object has all filtering applied except removal of the rare OTUs.
+  metadata_stool_nofilter <- the meta data for the stool samples, before any filters are applied (50 samples, 142 observations)
+  metadata_stool <- the meta data for the stool samples, after the filters are applied (120 observations, 37 samples)
+  phy.stool.filtered <- phyloseq object for the stool data, after filtering
+  taxtable.stool.filtered <- taxonomy table for the stool data, after filtering
+  otut.stool.relative <- relative abundance table that is long by the OTU and wide by each aliquot
+  t_otut.relative.stool <- relative abundance table that is wide by the OTU and has one row for each aliquot
+  
+#Primary Hypothesis #1 and #2
+There will  be  no  differencesin  mean  Shannon Diversity Index of Chao1 richness of either oral or fecal samples prepared in 1) eNAT and stored immediately at -80OC and 2) eNAT and left at room temperature compared to these same samples 3.) prepared in RNAlater and stored immediately at -80OC. 
+  
+  A.) Generate the SDI and Chao1 (need to use species before removal of rare OTUs). Input is phy.1000.stool.5. Output is stool_diversity (analytic data file)
+  B.) Perform Statistical Analysis of SDI and CHao1. This occurs in SAS (code 'eNAT Aim 1.sas')
+  C.) Performing Bland Altman Analysis and making the plots
+  
+#Primary Hypothesis #3
+There will  be  no  differences in  mean  global species richness of either oral or fecal samples prepared in 1) eNAT and stored immediately at -80OC and 2) eNAT and left at room temperature compared to these same samples 3.) prepared in RNAlater and stored immediately at -80OC. 
+
+  A.) Make NMDS Plots (input is phy.stool.filtered)
+  
+  
+#Secondary Hypothesis #1: 
+
+There will be no difference in relative abundance at the OTU level, between either oral or fecal samples prepared in 1) eNAT and stored immediately at -80OC and 2) eNAT and left at room temperature compared to these same samples prepared in RNAlater and stored immediately at -80OC.  
+  
+  Method: As an exploratory analysis, a metagenomeseqset of Friedman tests will be used to identify OTUs with significant differential relativeabundance between preparation methods. The phyloseq object will be converted to a metagenomeseq object and will be then normalized to the cumulative 75thpercentile. The fitFeatureModel of the MetagenomeSeq package will be used to fit a zero-inflated model for each specific OTU separately. Models will first compare the difference between eNAT and RNA Later, both at -80 OC and, separately, thedifference between eNAT at -80OC and eNAT at  room  temperature. An  FDR  correction  based  on  the  Benjamini-Hochberg  procedure  will  be employed.  
+  
+  Step X.) 
+    A.) CONVERT TO A METAGENOMESEQ OBJECT FOR NORMALIZATION (input is XXX)
+    B.)
+    C.)
+  
+#  Secondary Hypothesis #2 : 
+
+There will be no difference in relative abundance at the genuslevel, between either oral or fecal samples prepared in 1) eNAT and stored immediately at -80OC and 2) eNAT and left  at  room  temperature  compared  to  these  same  samples  prepared  in RNAlater  and stored immediately at -80OC. Method: A second exploratory analysis will be completed, as described above, except instead of identifying a  difference  of  relative  abundance  for  each  OTU,  the  models  will  identify  differential  relative abundance of data aggregated on the genus level. The difference in median abundance of the 20 most abundant genera will be calculated comparing each preparation method.The difference in medians will be plotted. 
+  
+Step X.) Agglomorate the OTU level data to the genus level. 
+  A.) Remove Genera that don't appear in at least 10% of the samples
+  B.) Get the relative abundance of the genera. transform it so the columns are the Relative abundance of each genera, per person. Then sum it up, so we have total genera. Find the top 20 genera.
+  C.) Export the relative abundance file for each genera to SAS.
+  
+  
+#Descriptive Analysis:
+Added section on 20190718
+1.) The number of genera. The number of phyla
+2.) Most abundant bacterial genera, and percentages (4 most abundant)
+  
+  
+  
+  
+##setting libraries. Might require these commands with the PhyloSeq installation Bug:
+
+
+This is optional code to inlude everytime that phyloseq is updated. It does not need to be included every run. Just if I have the phyloseq installation bug
+
+    install.packages("BiocManager")
+BiocManager::install('phyloseq') 
+install.packages("Rcpp")
+
+```{r}
+
+load("U:/Rebecca/eNAT/Raw Data/eNAT_no_controls_deID.Rdata")
+setwd("U:/Rebecca/eNAT/Code")
+library("phyloseq")
+library("ggplot2")
+library("vegan")
+library("knitr")
+library("metagenomeSeq")
+library("dplyr")
+metadata<-data.frame(sample_data(phy.no.controls))
+nsamples(phy.no.controls)
+```
+
+
+
+#Section 1: PReparing the Microbiome Data for Analysis##############
+
+This is before any aims.
+
+Remove eukaryotic sequences
+```{r}
+phy.data <- subset_taxa(phy.no.controls, Phylum!='Eukaryota')
+phy.data.poop <- subset_samples(phy.data, Extraction_Volume == 100)
+phy.data.spit <- subset_samples(phy.data, Extraction_Volume == 500)
+
+#Export the saliva data for later.
+save.image("U:/Rebecca/eNAT/Raw Data/phy.data.spit.rdata")
+remove(phy.data.spit, phy.data)
+```
+No Comparison C
+```{r}
+
+#Get rid of the Oral sample with an extraction volume of 100
+phy.data.poop <- subset_samples(phy.data.poop, Description!='OR005')
+
+metadata_stool_nofilter <- as.data.frame(sample_data(phy.data.poop))
+metadata_stool_nofilter[order(metadata_stool_nofilter$Description, metadata_stool_nofilter$Groups),]
+#Number of patients, number of samples, number of aliquots
+table(metadata_stool_nofilter$StudyID)
+
+```
+Prune samples that don't have at least 1000 reads (Comes from Rarefaction curve, in separate code). This reduces samples from 150 to 143
+
+```{r}
+# Prune samples that don't have at least 1000 reads
+phy.less1000 <- prune_samples(sample_sums(phy.data.poop)<1000, phy.data.poop)
+sample_names(phy.less1000)
+phy.1000.stool <- prune_samples(sample_sums(phy.data.poop)>=1000, phy.data.poop)
+nsamples(phy.data.poop)
+
+#Remove Samples where there is no C sample, or the only sample is C
+
+phy.1000.stool1 <- subset_samples(phy.1000.stool, Description!='ST002')
+phy.1000.stool2 <- subset_samples(phy.1000.stool1, Description!='ST006')
+phy.1000.stool3 <- subset_samples(phy.1000.stool2, Description!='ST013')
+phy.1000.stool4 <- subset_samples(phy.1000.stool3, Description!='ST028')
+phy.1000.stool5 <- subset_samples(phy.1000.stool4, Description!='ST041')
+
+remove(phy.1000.stool1, phy.1000.stool2, phy.1000.stool3, phy.1000.stool4, phy.less1000, phy.1000.stool)
+
+nsamples(phy.1000.stool5)
+```
+
+Remove OTUs with <10 counts in total across all samples. There are 1459 taxa to begin with, this filter removes to 723
+
+```{r}
+ntaxa(phy.1000.stool5)
+# Remove OTUs with <10 counts in total across all samples
+
+#Change on 3/18 to remove this filter entirely.
+#phy.filter_tmp <- filter_taxa(phy.1000.stool5, function(Abundance) sum(Abundance)>=10, TRUE)
+#ntaxa(phy.filter_tmp)
+```
+
+#Decision on 3/18 to filter on RELATIVE abundance less than 0.005 (reasonable filter would result in 500 to 1000 OTUs)
+```{r}
+phy.filter_tmp <- filter_taxa(phy.1000.stool5, function(Abundance) sum(Abundance)>=29, TRUE)
+phy.stool.relative  = transform_sample_counts(phy.1000.stool5, function(x) x / sum(x) )
+phy.stool.relative.filter = filter_taxa(phy.stool.relative, function(x) mean(x) > 0.000005, TRUE)
+
+#Now make a file that is filtered but has absolute abundance.
+
+
+
+
+#phy.stool.filter = filter_taxa(phy.stool.relative, function(x) mean(x) > 0.000005, TRUE)
+ntaxa(phy.stool.relative)
+ntaxa(phy.stool.relative.filter)
+ntaxa(phy.filter_tmp)
+```
+
+
+#there are 526 OTUs in the dataset, these are coming from 120 aliquots 
+
+#Create dataframe for filtered taxtable
+
+
+```{r}
+
+otut.stool.relative.filter <- as.data.frame(as(otu_table(phy.stool.relative.filter),"matrix"),stringsAsFactors=FALSE)
+otut.stool.relative <- as.data.frame(as(otu_table(phy.stool.relative),"matrix"),stringsAsFactors=FALSE)
+otut.phy.1000.stool5 <- as.data.frame(as(otu_table(phy.1000.stool5),"matrix"),stringsAsFactors=FALSE)
+
+#Need to transform so the OTUs are columns and the samples are rows
+
+t_otut.relative.stool <-as.data.frame(t(otut.stool.relative))
+t_otut.relative.stool.filter <-as.data.frame(t(otut.stool.relative.filter))
+t_otut.phy.1000.stool5 <-as.data.frame(t(otut.phy.1000.stool5))
+
+```
+
+```{r}
+taxtable.stool.filtered <- as.data.frame(as(tax_table(phy.stool.relative.filter),"matrix"),stringsAsFactors=FALSE)
+```
+
+Save metadata file for stool
+```{r}
+metadata_stool <- as.data.frame(sample_data(phy.1000.stool5))
+```
+
+
+
+
+
+#AIM 1
+
+A.) CREATE DATAFRAMES FOR MEASURING ALPHA DIVERSITY PRIOR TO TRIMMING OF LOW ABUNDANCE TAXA
+
+```{r}
+# Create dataframe with Shannon diversity index for each specimen
+stool_diversity <- estimate_richness(phy.1000.stool5, measures = c("Shannon", "Chao1"))
+stool_diversity$SampleID <- rownames(stool_diversity)
+colnames(stool_diversity) <- c("Chao1", "Chao1_SE", "Shannon", "SampleID")
+stool_diversity$SampleID <- gsub("[a-zA-Z ]", "", stool_diversity$SampleID)
+rownames(stool_diversity) <- stool_diversity$SampleID
+stool_diversity <- merge(metadata, stool_diversity, by="SampleID")
+write.csv(stool_diversity, "U:/Rebecca/eNAT/Analytic Data/stool_diversity.csv")
+write.csv(metadata_stool, "U:/Rebecca/eNAT/Analytic Data/metadata_stool.csv")
+
+```
+
+
+C.) Bland Altman PLots
+
+
+
+#BLAND ALTMAN Plot, following this tutorial: https://cran.r-project.org/web/packages/blandr/vignettes/introduction.html.
+
+```{r}
+library('tidyverse')
+library('dplyr')
+library('blandr')
+library('ggplot2')
+```
+
+#Bland Altman Package
+
+#Loading the Bland Altman Function that does the plotting. This has been edited to my exact needs.
+```{r}
+source("U:/Rebecca/eNAT/Code/Bland Altman Function.R")
+```
+
+
+#Need to rearrange the stool_diversity file so it lines up with comparisons. It needs to be wide by comparison, one row per sample.
+
+```{r}
+
+stool_diversity3 <- select(stool_diversity, -Extraction_Volume, -StudyID, -Chao1_SE, -SampleID)
+#YEAH! Look at how easy it was to reshape this dataset! woot woot
+stool_diversity4 <- reshape(stool_diversity3, idvar="Description", timevar ="Groups", direction = "wide")
+#This is a dataset that has one row for each sample, and there is one column for each aliquot type for Shannon, and the same for Chao1
+#The problem is, there is missing data in some aliquots and not in the others. In the Bland Altman Test, I can not include data for aliquot B if there is no data for aliquot A, in the comparison of A and B. This will cause a frameshift error.
+
+stool_diversity6 <- stool_diversity4 %>% mutate(CB_Shannon = if_else(is.na(Shannon.B), NA_real_, Shannon.C), CB_Chao1 = if_else(is.na(Chao1.B), NA_real_, log(Chao1.C)), CA_Shannon = if_else(is.na(Shannon.A), NA_real_, Shannon.C), CA_Chao1 = if_else(is.na(Chao1.A), NA_real_, log(Chao1.C)), BC_Shannon = Shannon.B,BC_Chao1 = log(Chao1.B), AC_Shannon = Shannon.A, AC_Chao1 = log(Chao1.A) )
+
+remove(stool_diversity3, stool_diversity4)
+```
+
+#Running bland-altman program and making the plots
+
+```{r}
+vAC_Shannon <- stool_diversity6$AC_Shannon[!is.na(stool_diversity6$AC_Shannon)]
+vCA_Shannon <- stool_diversity6$CA_Shannon[!is.na(stool_diversity6$CA_Shannon)]
+vBC_Shannon <- stool_diversity6$BC_Shannon[!is.na(stool_diversity6$BC_Shannon)]
+vCB_Shannon <- stool_diversity6$CB_Shannon[!is.na(stool_diversity6$CB_Shannon)]
+
+vAC_Chao1 <- stool_diversity6$AC_Chao1[!is.na(stool_diversity6$AC_Chao1)]
+vCA_Chao1 <- stool_diversity6$CA_Chao1[!is.na(stool_diversity6$CA_Chao1)]
+vBC_Chao1 <- stool_diversity6$BC_Chao1[!is.na(stool_diversity6$BC_Chao1)]
+vCB_Chao1 <- stool_diversity6$CB_Chao1[!is.na(stool_diversity6$CB_Chao1)]
+
+plotBA_CA_Shannon <- Bland.Altman.diagram(vAC_Shannon, vCA_Shannon,alpha = .05,rep.meas = F,xname = 'Shannon Diversity Index (RNA Later)',yname = 'Shannon Diversity Index (eNAT)')
+plotBA_CA_Shannon <- plotBA_CA_Shannon + scale_x_continuous("Mean Shannon Diversity Index of RNA Later and eNAT", breaks = c(0, 0.5, 1, 1.5, 2.0, 2.5, 3.0, 3.5))
+plotBA_CA_Shannon <- plotBA_CA_Shannon + scale_y_continuous(breaks = c(-0.5, 0, 0.5))
+plotBA_CA_Shannon <- plotBA_CA_Shannon + theme(text=element_text(size=15))
+
+
+BAstats_ShannonAC <- blandr.statistics( vAC_Shannon , vCA_Shannon)
+plotBA_BC_Shannon <- Bland.Altman.diagram(vBC_Shannon, vCB_Shannon,alpha = .05,rep.meas = F,xname = 'Shannon Diversity Index (eNAT at RT)',yname = 'Shannon Diversity Index (eNAT immediate freeze)')
+BAstats_ShannonBC <- blandr.statistics( vBC_Shannon , vCB_Shannon)
+
+plotBA_CA_lnChao1 <- Bland.Altman.diagram(vAC_Chao1, vCA_Chao1,alpha = .05,rep.meas = F,xname = 'ln Chao1 (RNA Later)',yname = 'ln Chao1 (eNAT)')
+BAstats_Chao1AC <- blandr.statistics( vAC_Chao1, vCA_Chao1)
+
+
+plotBA_BC_lnChao1 <- Bland.Altman.diagram(vBC_Chao1, vCB_Chao1,alpha = .05,rep.meas = F,xname = 'ln Chao1 (eNAT at RT)',yname = 'ln Chao1 (eNAT immediate freeze)')
+BAstats_Chao1BC <- blandr.statistics( vBC_Chao1, vCB_Chao1)
+
+
+```
+```{r}
+ggsave("Bland Altman Shannon RNA Later vs eNAT 20190326.png", device="png", plot=plotBA_CA_Shannon, height = 4, width = 7, units="in")
+ggsave("Bland Altman Chao1 RNA Later vs eNAT 20190326.png", device="png", plot=plotBA_CA_lnChao1, height = 4, width = 7, units="in")
+ggsave("Bland Altman Shannon eNAT RT vs Freeze 20190326.png", device="png", plot=plotBA_BC_Shannon, height = 4, width = 7, units="in")
+ggsave("Bland Altman Chao1 RNA RT vs Freeze 20190326.png", device="png", plot=plotBA_BC_lnChao1, height = 4, width = 7, units="in")
+```
+
+
+
+
+
+#Messing with BA plot
+```{r}
+plotBA_CA_Shannon <- Bland.Altman.diagram(vAC_Shannon, vCA_Shannon,alpha = .05,rep.meas = F,xname = 'Shannon Diversity Index (RNAlater)',yname = 'Shannon Diversity Index (eNAT)')
+plotBA_CA_Shannon <- plotBA_CA_Shannon + scale_x_continuous("Mean Shannon Diversity Index of RNAlater and eNAT", breaks = c(0, 0.5, 1, 1.5, 2.0, 2.5, 3.0, 3.5))
+plotBA_CA_Shannon <- plotBA_CA_Shannon + scale_y_continuous(breaks = c(-0.5, 0, 0.5), limits = c(-0.7, 0.7))
+plotBA_CA_Shannon <- plotBA_CA_Shannon + theme(text=element_text(size=15))
+plotBA_CA_Shannon
+
+ggsave("Bland Altman Shannon RNA Later vs eNAT 2019524.png", device="png", plot=plotBA_CA_Shannon, height = 4, width = 7, units="in")
+```
+
+
+```{r}
+BAstats_ShannonAC <- blandr.statistics( vAC_Shannon , vCA_Shannon)
+plotBA_BC_Shannon <- Bland.Altman.diagram(vBC_Shannon, vCB_Shannon,alpha = .05,rep.meas = F,xname = 'Shannon Diversity Index (eNAT at RT)',yname = 'Shannon Diversity Index (eNAT frozen)')
+plotBA_BC_Shannon <- plotBA_BC_Shannon + scale_x_continuous("Mean Shannon Diversity Index of eNAT, frozen and RT", breaks = c(0, 0.5, 1, 1.5, 2.0, 2.5, 3.0, 3.5))
+plotBA_BC_Shannon <- plotBA_BC_Shannon + scale_y_continuous(breaks = c(-0.5, 0, 0.5), limits = c(-0.7, 0.7))
+plotBA_BC_Shannon <- plotBA_BC_Shannon + theme(text=element_text(size=15))
+plotBA_BC_Shannon
+
+ggsave("Bland Altman Shannon eNAT vs eNAT 2019524.png", device="png", plot=plotBA_BC_Shannon, height = 4, width = 7, units="in")
+```
+
+```{r}
+plotBA_CA_lnChao1 <- Bland.Altman.diagram(vAC_Chao1, vCA_Chao1,alpha = .05,rep.meas = F,xname = 'ln Chao1 (RNA Later)',yname = 'ln Chao1 (eNAT)')
+BAstats_Chao1AC <- blandr.statistics( vAC_Chao1, vCA_Chao1)
+
+plotBA_CA_lnChao1 <- plotBA_CA_lnChao1 + scale_x_continuous("Mean ln Chao1 of RNAlater and eNAT", breaks = c(2, 3, 4, 5), limits = c(2, 5.2))
+plotBA_CA_lnChao1 <- plotBA_CA_lnChao1 + scale_y_continuous(breaks = c(-1.0, -0.5, 0, 0.5, 1.0), limits = c(-1.2, 1.2))
+plotBA_CA_lnChao1 <- plotBA_CA_lnChao1 + theme(text=element_text(size=15))
+plotBA_CA_lnChao1
+
+ggsave("Bland Altman Chao1 eNAT vs RNALater 2019524.png", device="png", plot=plotBA_CA_lnChao1, height = 4, width = 7, units="in")
+```
+```{r}
+plotBA_BC_lnChao1 <- Bland.Altman.diagram(vBC_Chao1, vCB_Chao1,alpha = .05,rep.meas = F,xname = 'ln Chao1 (eNAT at RT)',yname = 'ln Chao1 (eNAT immediate freeze)')
+BAstats_Chao1BC <- blandr.statistics( vBC_Chao1, vCB_Chao1)
+
+plotBA_BC_lnChao1 <- plotBA_BC_lnChao1 + scale_x_continuous("Mean ln Chao1 of eNAT frozen and RT", breaks = c(2, 3, 4, 5), limits = c(2, 5.2))
+plotBA_BC_lnChao1 <- plotBA_BC_lnChao1 + scale_y_continuous(breaks = c(-1.0, -0.5, 0, 0.5, 1.0), limits = c(-1.2, 1.2))
+plotBA_BC_lnChao1 <- plotBA_BC_lnChao1 + theme(text=element_text(size=15))
+plotBA_BC_lnChao1
+
+ggsave("Bland Altman Chao1 eNAT vs eNAT 2019524.png", device="png", plot=plotBA_BC_lnChao1, height = 4, width = 7, units="in")
+```
+
+#PRIMARY HYPOTHESIS: #3
+
+
+#**************************************
+Staring the PERMANOVA 
+
+Hypothesis 
+Using ANOSIM. R is interpreted like a correlation coeffcient and it is a measure of effect size of the similarity - when R=1 all pairs of samples within groups are more similar than to any pair of samples from different groups. R=0 is expected value under null, that among-and within-group dissimilarities are the same on average.Non-parametric, based on Monte Carlo permutations. The sig test is the number of permuted R's taht are greater than the observed R. This is similar to ANOVA, but on a dissimilarity matrix instead of raw data. 
+
+WARNING: Do not assign group membership based on the results of clustering (or a similar exploratory method) applied to the same data set and then treat a significant ANOSIM result as meaningful. This is an example of data dredging.
+
+WARNING: Running ANOSIM on groups with very different dispersions can lead to unreliable results. Groups with very different dispersions may produce high R values, even if there's no real difference in their centroids. If differences in group dispersion are as meaningful to your analysis as differences in group centre, this may not be an issue.
+
+Components of ANOSIM:
+
+X: data matrix or ata rame in which rows are samples and columns are response variables (or a dissimilarity object or a symmetric square matrix of dissimilarities)
+
+Grouping: Factor for group grouping of observations
+
+data: the data frame for the independent variables
+
+permutations: the number of permutations required.
+
+distance: choice of distrance metrix that measures the dissimilarity between two observations (check vegdist for options). No need to use if X is a dissimilarity structure
+
+strata: interger vector or factor, specifies the strata for permutation. Observations are only permuted within the specified strata. STRATA BY PERSON!
+
+
+How to get results: call is the function call. Statistic returns the ANOSIM R statistic. perm is the permutation values of R. Class.vec returns factor with value Between for dissimilarities between calsses and the class name. 
+
+example: data(dune)
+data(dune.env)
+dune.dist <- vegdist(dune)
+dune.ano <- with(dune.env, anosim(dune.dist, Management))
+summary(dune.ano)
+plot(dune.ano)
+
+#A.) MAKE NMDS PLOT
+
+OK, example seen here: http://geoffreyzahn.com/nmds-example/ in making an NMDS plot. Their dataset is called OTUs, it is filtered but not normalized. My equivalent is the OTU.table in the phy.filtered.stool phyloseq object. Getting this table into its own dataframe:
+
+
+
+```{r}
+otut.stool <- as.data.frame(as(otu_table(phy.filter_tmp),"matrix"),stringsAsFactors=FALSE)
+
+#Need to transform so the OTUs are columns and the samples are rows
+
+t_otut.stool <-as.data.frame(t(otut.stool))
+t_otut.stool <-as.data.frame(sapply(t_otut.stool, as.integer))
+
+#Now we need to rarefy this. Rarefy down to the least abundant OTU so that we can compare evenly between samples regardless of sampling depth
+
+min_depth = min(colSums(t_otut.stool))
+
+```
+
+#Making group variable that is the same as what I want shown in the figure
+```{r}
+
+metadata_stool %>% 
+  mutate(group2 = case_when(Groups ==  'C' ~ "eNAT Frozen",
+                        Groups == 'B'  ~ "eNAT at RT",
+                        Groups == 'A'~ "RNA Later Frozen"))
+```
+
+
+```{r}
+
+set.seed(3251)
+t_otus_stool_rarefied <- as.data.frame(round(rrarefy(t_otut.stool, min_depth)))
+
+#Taking sqaure root of the abundance data. the goal will be to figure out the best method to calculate the distance matrix
+
+sqrt_t_otus_stool_rarefied <- sqrt(t_otus_stool_rarefied)
+rank.totus.stool <- rankindex(as.matrix(sqrt_t_otus_stool_rarefied), t_otus_stool_rarefied, indices = c("bray", "euclid", "manhattan", "horn"), method = "spearman")
+print(paste("The highest rank was given by the", names(sort(rank.totus.stool, decreasing = TRUE)[1]), "method."))
+
+#determined that the bray curtis method was the best calculation of the distance matrix
+
+otus_dist_stool = as.matrix((vegdist(t_otus_stool_rarefied, "bray")))
+
+#perform NMDS
+
+NMDS = metaMDS(otus_dist_stool)
+
+ MDS1 = NMDS$points[,1]
+ MDS2 = NMDS$points[,2]
+ NMDS_stool = data.frame(MDS1 = MDS1, MDS2 = MDS2, Groups = metadata_stool$Groups, StudyID = metadata_stool$StudyID,  Description = metadata_stool$Description)
+
+ NMDS_stool_BC <- subset(NMDS_stool, Groups != 'A')
+ NMDS_stool_AC <- subset(NMDS_stool, Groups != 'B')
+ NMDS_stool_AB <- subset(NMDS_stool, Groups != 'C')
+ 
+
+plotBC <- ggplot(NMDS_stool_BC, aes(x=MDS1, y=MDS2, col=Groups)) +
+ geom_point(size = 2.5) +
+    scale_color_manual(labels = c("eNAT RT", "eNAT Frozen"), values = c("firebrick1", "chartreuse4")) +
+ stat_ellipse() +
+  xlim(0.62, -0.62) +
+  ylim(0.32, -0.32) +
+   theme(axis.title.x = element_text(face="bold", size=15),
+         legend.position = "bottom",
+           axis.title.y  = element_text(face="bold", size=15),
+           panel.grid.minor = element_line( linetype = 'solid',
+                                colour = "light gray"),
+           panel.grid.major = element_line( linetype = 'solid',
+                                colour = "light gray")) 
+plotBC <- plotBC + theme_bw()
+plotBC
+
+plotAC <- ggplot(NMDS_stool_AC, aes(x=MDS1, y=MDS2, col=Groups)) +
+ geom_point(size=2.5) +
+  scale_color_manual(labels = c("RNA Later", "eNAT Frozen"), values = c("darkturquoise", "chartreuse4")) +
+ stat_ellipse() +
+  xlim(0.62, -0.62) +
+  ylim(0.32, -0.32) +
+  theme(axis.title.x = element_text(face="bold", size=15),
+           axis.title.y  = element_text(face="bold", size=15),
+           panel.grid.minor = element_line( linetype = 'solid',
+                                colour = "light gray"),
+        legend.position = "bottom",
+           panel.grid.major = element_line( linetype = 'solid',
+                                colour = "light gray"), 
+        plot.background = element_rect(colour="white"),
+        axis.text = element_text(size=16))
+
+
+plotAC <- plotAC + theme_bw()
+plotAC
+
+
+```
+
+```{r}
+plotAC <- ggplot(NMDS_stool_AC, aes(x=MDS1, y=MDS2, col=Groups)) +
+ geom_point(size=2.5) +
+  scale_color_manual(labels = c("RNA Later", "eNAT Frozen"), values = c("red3", "darkolivegreen")) +
+ stat_ellipse() +
+  xlim(0.8, -0.8) +
+  ylim(0.4, -0.4) +
+  theme(axis.title.x = element_text(face="bold", size=15),
+           axis.title.y  = element_text(face="bold", size=15),
+           panel.grid.minor = element_line( linetype = 'solid',
+                                colour = "light gray"),
+        legend.position = "bottom",
+           panel.grid.major = element_line( linetype = 'solid',
+                                colour = "light gray"), 
+        plot.background = element_rect(colour="white"),
+        axis.text = element_text(size=25))
+
+
+
+plotAC
+```
+
+
+```{r}
+ggsave("NMDS RNA Later vs eNAT 20190524.png", device="png", plot=plotAC, height = 4, width = 6, units="in")
+ggsave("NMDS eNAT RT vs Freeze 20190524.png", device="png", plot=plotBC, height = 4, width = 6, units="in")
+
+```
+
+
+#PERMANOVA
+
+
+
+```{r}
+# PERMANOVA to compare microbiota composition by groups.
+library(vegan)
+
+phy.stool.AC <- subset_samples(phy.stool.relative.filter, Groups != "B")
+phy.stool.AB <- subset_samples(phy.stool.relative.filter, Groups != "C")
+phy.stool.BC <- subset_samples(phy.stool.relative.filter, Groups != "A")
+
+metadata_permanova_AC <- as(sample_data(phy.stool.AC), "data.frame")
+metadata_permanova_AB <- as(sample_data(phy.stool.AB), "data.frame")
+metadata_permanova_BC <- as(sample_data(phy.stool.BC), "data.frame")
+
+adonis(distance(phy.stool.AC, method="bray") ~  Description / Groups, data = metadata_permanova_AC)
+adonis(distance(phy.stool.AB, method="bray") ~  Description / Groups, data = metadata_permanova_AB)
+adonis(distance(phy.stool.BC, method="bray") ~  Description / Groups, data = metadata_permanova_BC)
+
+```
+
+
+
+
+
+
+
+
+# Secondary Hypothesis #1
+
+There will be no difference in relative abundance at the OTU level, between either oral or fecal samples prepared in 1) eNAT and stored immediately at -80OC and 2) eNAT and left at room temperature compared to these same samples prepared in RNAlater and stored immediately at -80OC.  
+  
+   Method: As an exploratory analysis, metagenomeseq will be used to identify OTUs with significant differential relative abundance between preparation methods. The phyloseq object will be converted to a metagenomeseq object and will be then normalized to the cumulative 75thpercentile. The fitFeatureModel of the MetagenomeSeq package will be used to fit a zero-inflated model for each specific OTU separately. Models will first compare the difference between eNAT and RNA Later, both at -80 OC and, separately, the difference between eNAT at -80OC and eNAT at  room  temperature. An  FDR  correction  based  on  the  Benjamini-Hochberg  procedure  will  be employed.  
+  
+  Step X.) 
+    A.) CONVERT TO A METAGENOMESEQ OBJECT FOR NORMALIZATION (input is XXX)
+    B.) Make Datasets for the appropriate comparison (ie. exclude B, then separetely exclude A)
+    C.) Run metagenomeSeq for OTU level
+    D.) Aggregate on the genus level
+    E.) Normalize genus level
+    F.) Repeat step B and C, on genus level.
+    
+    Input: phy.stool.relative.filter
+    Output: MGS_Result_CA3_genus, MGS_Result_BC3_genus, MGS_Result_CA3, MGS_Result_BC3
+
+# **********************************************************************************************************************
+A.) CONVERT TO A METAGENOMESEQ OBJECT FOR NORMALIZATION 
+```{r}
+
+# First convert filtered phyloseq object to metagenomeSeq object
+
+mgs.stool <- phyloseq_to_metagenomeSeq(phy.filter_tmp)
+```
+
+```{r}
+
+# Normalize to the cumultative 75%ile
+mgs.con.norm.stool = cumNorm(mgs.stool, p = 0.75)
+normFactor.stool = normFactors(mgs.stool)
+normFactor.stool <- normFactor.stool[!is.na(names(normFactor.stool))]
+
+# Output OTU table with normalized counts to a dataframe and import this back into phyloseq as otu_table. Stool.
+otu1.stool <- MRcounts(mgs.stool, norm = TRUE, log = FALSE)
+otu1.stool <- otu_table(otu1.stool, taxa_are_rows=TRUE)
+otu_table(phy.filter_tmp) <- otu1.stool
+sample_sums(phy.filter_tmp)
+remove(otu1.stool)
+
+
+save(phy.filter_tmp,  file="U:/Rebecca/eNAT/Analytic Data/filtered normalized phyloseq objects stool 20190320.RData")
+
+```
+
+
+
+#Now I want to repeate this process, but on the genus level. After aggregation to genera
+
+```{r}
+aggregated_mgs = aggregateByTaxonomy(mgs.stool, lvl="Genus", norm=FALSE)
+
+mgs.con.norm.stool_genus = cumNorm(aggregated_mgs, p = 0.75)
+normFactor.stool_genus = normFactors(aggregated_mgs)
+normFactor.stool_genus <- normFactor.stool[!is.na(names(normFactor.stool_genus))]
+#Subsetting to specific comparisons
+
+BCsamples_genus = which(mgs.con.norm.stool_genus$Groups != 'A')
+mgs_stool_BC_genus = mgs.con.norm.stool_genus[, BCsamples_genus]
+#head(mgs_stool_BC)
+
+ACsamples_genus = which(mgs.con.norm.stool_genus$Groups != 'B')
+mgs_stool_AC_genus = mgs.con.norm.stool_genus[, ACsamples_genus]
+
+table (mgs_stool_AC_genus$Groups)
+```
+
+
+```{r}
+#aggregate on the genus level
+library('tidyverse')
+pd_BC <- pData(mgs_stool_BC_genus)
+mod <- model.matrix(~1+Groups, data=pd_BC)
+ffm_BC <- fitFeatureModel(mgs_stool_BC_genus,mod)
+MGS_Result_BC <- MRcoefs(ffm_BC, number = 50)
+#The fold change is equal to 2^logFC (LogFC is log to the base 2)
+MGS_Result_BC2 <- as_tibble(rownames_to_column(MGS_Result_BC))
+taxtable <- as_tibble(rownames_to_column(taxtable.stool.filtered))
+MGS_Result_BC3_genus <- left_join(MGS_Result_BC2, taxtable, by="rowname") %>% mutate(foldchange = 2 ^ logFC) 
+remove(pd_BC, mod, ffm_BC, MGS_Result_BC, MGS_Result_BC2)
+
+#Now doing the same thing for CA
+
+pd_CA <- pData(mgs_stool_AC_genus)
+mod <- model.matrix(~1+Groups, data=pd_CA)
+ffm_CA <- fitFeatureModel(mgs_stool_AC_genus,mod)
+MGS_Result_CA <- MRcoefs(ffm_CA, number = 50)
+#The fold change is equal to 2^logFC (LogFC is log to the base 2)
+MGS_Result_CA2 <- as_tibble(rownames_to_column(MGS_Result_CA))
+taxtable <- as_tibble(rownames_to_column(taxtable.stool.filtered))
+MGS_Result_CA3_genus <- left_join(MGS_Result_CA2, taxtable, by="rowname") %>% mutate(foldchange = 2 ^ logFC) 
+remove(pd_CA, mod, ffm_CA, MGS_Result_CA, MGS_Result_CA2)
+
+```
+
+
+
+
+
+#  Secondary Hypothesis #2 
+  
+Step X.) Agglomorate the OTU level data to the genus level. 
+  B.) Get the relative abundance of the genera. transform it so the columns are the Relative abundance of each genera, per person. Then sum it up, so we have   total genera. Find the top 20 genera.
+  C.) Export the relative abundance file for each genera to SAS.
+
+```{r}
+genus.phy.stool <- tax_glom(phy.1000.stool5, "Genus")
+    
+genus.taxtable <- as.data.frame(as(tax_table(phy.1000.stool5),"matrix"),stringsAsFactors=FALSE)
+
+ntaxa(genus.phy.stool)
+
+#Make relative abundance genus file and transform it
+
+genus.phy.stool.relative <- transform_sample_counts(genus.phy.stool, function(x) x / sum(x) )
+genust.stool.relative <- as.data.frame(as(otu_table(genus.phy.stool.relative),"matrix"),stringsAsFactors=FALSE)
+
+#Need to transform so the OTUs are columns and the samples are rows
+
+t_genus.relative.stool <-as.data.frame(t(genust.stool.relative))
+
+#Added 20181227
+#Summing each count, so we have the total relative abundance by genera.
+genus.sum.ra <- summarise_all(t_genus.relative.stool, sum)
+genus2.sum.ra <- as.data.frame(t(genus.sum.ra))
+
+# Create dataframe for filtered taxtable
+
+genus.taxtable.stool.filtered <- as.data.frame(as(tax_table(phy.1000.stool5),"matrix"),stringsAsFactors=FALSE)
+
+
+  #Add the phloygeny information, based on the rowname ID
+  #merge genus.taxtable.stool.filtered and genus2.sum.ra by the rownames
+library(tibble)
+genus.taxtable.stool.filtered <- rownames_to_column(genus.taxtable.stool.filtered)
+genus2.sum.ra <- rownames_to_column(genus2.sum.ra)
+genus3.sum.ra <- inner_join (genus.taxtable.stool.filtered, genus2.sum.ra, by = 'rowname')
+genus3.sum.ranked <- arrange(genus3.sum.ra, desc(V1) )
+#ADDING A VARIABLE FOR ROW NUMBER
+
+genus3.sum.ranked$rank_ra <- 1:nrow(genus3.sum.ra)
+manuscriptTable2 <- head(genus3.sum.ra,20)
+
+#Merging row number (in dataset genus.3.sum.ra() with relative abundance of genera (genust.stool.relative)
+genust.stool.relative <- rownames_to_column(genust.stool.relative)
+genus_ra_rank <- inner_join(genust.stool.relative, genus3.sum.ranked, by = 'rowname')
+genus_ra_rank <- arrange(genus_ra_rank, rank_ra)
+#Only keeping the top 20 Genera
+
+forFigure3 <- head(genus_ra_rank,20)
+
+```
+
+```{r}
+#Savings files to CSV. This is to use in the SAS Program: Figure 3 20181228. I need one file with the relative abundances of the top 20 counts. One file with the taxonomy information. One file with the metadata. 
+
+row.names(forFigure3) <- forFigure3$rowname
+forFigure3a <- forFigure3[c(-1, -122, -123, -124, -125, -126, -127, -128, -129)]
+t3a <- as.data.frame(t(forFigure3a))
+genus.relative.stool.meta <- merge(t3a, metadata_stool, by="row.names")
+write.csv(genus.relative.stool.meta, "top20 genus relative abundance 20190326.csv")
+```
+
+#There are now only 20 taxa to compare. I need to do the following: 1.) Calculate the difference of eNAT - RNA Later. 2.) Find the median difference and sort by that difference. 3.)  SW testing .  
+
+```{r}
+#Upload median_BC
+
+
+windowsFonts(Times=windowsFont("TT Times New Roman"))
+
+median_BC = read.csv("Median Difference AC 20190326.csv", header = TRUE)
+library("ggpubr")
+
+bc_barplot <- ggbarplot(median_BC, x = "genusname", y = "median",
+          fill = "protocol",           # change fill color by mpg_level
+          color = "white",            # Set bar border colors to white
+          palette = "jco",            # jco journal color palett. see ?ggpar
+          sort.val = "desc",          # Sort the value in descending order
+          sort.by.groups = FALSE,     # Don't sort inside each group
+          x.text.angle = 0,          # Rotate vertically x axis texts
+          ylab = "Median Difference in Relative Abundance (%) \n(eNAT at RT minus immediate freeze)",
+          xlab="",
+          legend.title = "Preparation Type",
+          rotate = TRUE
+          )
+
+bc_barplot <- bc_barplot + theme(legend.position="bottom", axis.text.y = element_text(face="italic"))
+bc_barplot
+#Upload median_BC
+
+median_CA = read.csv("Median Difference BC 20190326.csv", header = TRUE)
+library("ggpubr")
+
+ca_barplot <- ggbarplot(median_CA, x = "genusname", y = "median", 
+          fill = "protocol",         # change fill color by mpg_level
+          color = "white",            # Set bar border colors to white
+          palette = "jco",            # jco journal color palett. see ?ggpar
+          sort.val = "desc",          # Sort the value in descending order
+          sort.by.groups = FALSE,     # Don't sort inside each group
+          x.text.angle = 0,          # Rotate vertically x axis texts
+          ylab = "Median Difference in Relative Abundance (%) \n(eNAT minus RNAlater)",
+          xlab = "",
+          legend.title = "Preparation Type",
+          rotate = TRUE
+          )
+
+ca_barplot <- ca_barplot + theme(legend.position="bottom",  axis.text.y = element_text(face="italic"))
+ca_barplot
+```
+```{r}
+ggsave("Genus Median Diff eNAT vs RNA Later 20190905.png", device="png", plot=ca_barplot, height = 4, width = 7, units="in")
+ggsave("Genus Median Diff eNAT RT vs Freeze 20190905.png", device="png", plot=bc_barplot, height = 4, width = 7, units="in")
+
+
+```
+
+
+
+
+```{r}
+#Adding seperate figures to one big tile. This is the best tutorial: http://www.sthda.com/english/articles/24-ggpubr-publication-ready-plots/81-ggplot2-easy-way-to-mix-multiple-graphs-on-the-same-page/
+
+library(gridExtra)
+library(lattice)
+library(grid)
+BA_BC_Shannon2 <- BA_BC_Shannon + ggtitle ('Shannon Diversity Index') +
+  theme(plot.title = element_text(hjust = 0.5)) # centering title
+BA_BC_lnChao12 <- BA_BC_lnChao1 + ggtitle ('natural log of Chao1') + 
+   theme(plot.title = element_text(hjust = 0.5)) # centering title
+
+BA_CA_Shannon2 <- BA_CA_Shannon + ggtitle ('Shannon Diversity Index') +
+  theme(plot.title = element_text(hjust = 0.5)) # centering title
+BA_CA_lnChao12 <- BA_CA_lnChao1 + ggtitle ('natural log of Chao1') + 
+   theme(plot.title = element_text(hjust = 0.5)) # centering title
+
+a <- BA_BC_Shannon2
+b <- BA_BC_lnChao12
+c <- plotBC
+d <- bc_barplot
+t <- textGrob("text")
+
+
+```
+
+
+```{r}
+library("cowplot")
+
+#Combine into a Bland Altman Plot, this will be the top of the final plot. 
+
+BlandAltmanPlots_BC <- ggdraw() +
+  draw_plot(a, x = 0, y = .25, width = .5, height = .75) +
+  draw_plot(b, x = .5, y = .25, width = .5, height = .75) +
+    draw_plot_label(label = c("A", "B"), size = 15,
+                  x = c(0, 0.5), y = c(1, 1))
+BlandAltmanPlots_BC
+ggsave("BlandAltmanPlots_BC.png")
+BlandAltmanPlots_CA <- ggdraw() +
+  draw_plot(BA_CA_Shannon2, x = 0, y = .25, width = .5, height = .75) +
+  draw_plot(BA_CA_lnChao12, x = .5, y = .25, width = .5, height = .75) +
+    draw_plot_label(label = c("A", "B"), size = 15,
+                  x = c(0, 0.5), y = c(1, 1))
+
+BlandAltmanPlots_CA
+ggsave("BlandAltmanPlots_CA.png")
+#Make Figure for the NMDS and Adonis Text
+Adonis_BC <- textGrob("Adonis \np>0.99")
+Adonis_CA <-   textGrob("Adonis \np>0.99 ")
+
+NMDS_BC <- ggdraw() +
+  draw_plot(plotBC, x = 0, y = 0, width = 1, height = 1) +
+  draw_plot(Adonis_BC, x = 0.65, y=0.05, width = 0.5, height = 0.5) +
+    draw_plot_label(label = "C", size = 15)
+ggsave("NMDS_BC.png")
+NMDS_CA <- ggdraw() +
+  draw_plot(plotAC, x = 0, y = 0, width = 1, height = 1) +
+  draw_plot(Adonis_CA, x = 0.65, y=0.05, width = 0.5, height = 0.5) +
+    draw_plot_label(label = "C", size = 15)
+  ggsave("MNDS_CA.png")
+Barplot_BC <- ggdraw()+
+  draw_plot(bc_barplot, x = 0, y = 0, width = 1, height  = 1)+
+  draw_plot_label(label = "D", size=15)
+  Barplot_BC
+  ggsave("Barplot_BC.png")
+Barplot_CA <- ggdraw()+
+  draw_plot(ca_barplot, x = 0, y = 0, width = 1, height  = 1)+
+  draw_plot_label(label = "D", size=15)
+  Barplot_CA
+
+  ggsave ("Barplot_CA.png")
+  
+
+```
+
+
+
+#Sequencing Depth - Added 20190718
+
+```{r}
+sdt <- as.data.frame(sample_sums(phy.filter_tmp))
+
+mean(sdt$`sample_sums(phy.filter_tmp)`)
+sum(sdt$`sample_sums(phy.filter_tmp)`)
+
+```
+
+#Rarefaction curve - added 20190905
+```{r}
+measure2 <- mutate(rarefaction_curve_data_summaryMeasure,  PREMATURE = as.character(PREMATURE),
+PREMATURE = replace(PREMATURE, PREMATURE == 0, "normal"),                      
+PREMATURE = replace(PREMATURE, PREMATURE == 1, "premature"),
+PREMATURE = replace(PREMATURE, is.na(PREMATURE), "missing")
+)
+```
+
+
+```{r}
+
+library(ggplot2)
+require(scales)
+levels(rarefaction_curve_data_summary$Measure) <- c("Observed Species", "Chao1 Index", "Chao1SE", "Shannon Diversity Index")
+
+ds <-  rarefaction_curve_data_summary %>% filter(Depth <= 10000)
+a <- ggplot(data = ds,
+       mapping = aes(x = Depth, y = Alpha_diversity_mean,
+                     ymin = Alpha_diversity_mean - Alpha_diversity_sd,
+                     ymax = Alpha_diversity_mean + Alpha_diversity_sd,
+                     group = Sample
+       )) + 
+  geom_line() + 
+  geom_pointrange() + 
+  facet_wrap(facets = ~ Measure, scales = 'free_y') + 
+  theme(legend.title=element_blank(), legend.text=element_text(size=12), 
+        axis.title.y = element_text(size=18), axis.text.y = element_text(size=14), 
+        axis.title.x = element_text(size=18), 
+        axis.text.x = element_text(angle = -90, size=14),
+        panel.background=element_rect(fill="white"),
+         panel.grid.major.x=element_line(colour="gray"),
+         panel.grid.major.y=element_line(colour="gray"),
+        strip.text.x = element_text(size = 12, color = "white"),
+        strip.background = element_rect(colour="white", fill="black")) +
+  scale_x_continuous(limits=c(0, 10000), labels = comma, breaks=c(0, 1000, 2500, 5000, 7500, 10000), trans='identity') + 
+  xlab("\nSequencing Depth") + ylab("Alpha Diversity (Mean)\n")
+
+ggsave("rarefaction 20190905.png", device="png", plot=a, height = 8, width = 10, units="in")
+
+a
+```
+
